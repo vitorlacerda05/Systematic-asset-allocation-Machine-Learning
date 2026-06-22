@@ -1,0 +1,14 @@
+# PDFs do professor (slides e enunciados) - o relatório em relatorio/ sobe normalmente
+context/*.pdf
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Cache de previsões do modelo
+outputs/preds_cache.pkl
+
+# Arquivos de sistema
+.DS_Store
+Thumbs.db
