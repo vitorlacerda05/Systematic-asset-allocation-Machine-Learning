@@ -1,143 +1,85 @@
 # Alocação Sistemática em Classes de Ativos com Aprendizado Supervisionado
 
-**SSC0964 — Introdução à Computação no Mercado Financeiro — Trabalho 2**
+Estratégia quantitativa que decide, **mês a mês**, quanto alocar em cada classe de
+ativo (ações, renda fixa, ouro, dólar) em vez de ficar no caixa (CDI/Selic). Um
+modelo de aprendizado supervisionado estima a **probabilidade de cada classe bater
+o CDI** no mês seguinte, e essa probabilidade vira o tamanho da posição.
 
-Estratégia de alocação sistemática entre classes de ativos que usa
-classificação supervisionada para decidir, mês a mês, quanto alocar em cada
-classe versus o caixa (CDI/Selic).
+> Trabalho 2 da disciplina SSC0964 - Introdução à Computação no Mercado Financeiro (ICMC USP).
 
----
+![Curva de patrimônio](outputs/equity_curve.png)
 
-## 1. Ideia central (e o que a torna original)
+## A ideia em uma frase
 
-Em vez de aplicar uma regra técnica sobre uma única série (cruzamento de médias,
-Bandas de Bollinger etc., vistas em aula), tratamos a alocação como um problema
-**cross-sectional** de aprendizado supervisionado:
+Em vez de uma regra técnica sobre uma única série (médias móveis, Bandas de
+Bollinger), o problema é tratado como classificação: para cada ativo e cada mês,
+*"vale a pena estar aqui em vez de ficar no caixa?"*. A resposta (uma probabilidade)
+dimensiona o peso na carteira.
 
-- **Saída (rótulo) — original:** para cada classe de ativo e cada mês, prever a
-  **probabilidade de o ativo superar o CDI no mês seguinte**
-  (`retorno_ativo(t+1) > retorno_Selic(t+1)`). Não prevemos "sobe/desce", e sim
-  *"vale a pena estar neste ativo em vez de ficar no caixa?"*. A probabilidade
-  vira **tamanho da posição**.
-- **Entrada (features) — original:** combinamos sinais **técnicos** de cada ativo
-  (momentum multi-horizonte, volatilidade, distância da média / reversão,
-  momentum em excesso ao caixa, aceleração) com um **contexto macro**
-  compartilhado (juro real Selic−IPCA, variação da Selic, momentum de inflação
-  IPCA/IGP-M, inclinação implícita da curva via IMA-B vs IMA-B 5, tendência do
-  dólar e do S&P global). É a fusão técnico + macro, sobre várias classes ao
-  mesmo tempo, que difere das estratégias de série única vistas em aula.
+**O que torna a estratégia original:**
 
-A decisão por classe aumenta a **largura de apostas independentes** — alinhado à
-*Lei Fundamental da Gestão Ativa* (`IR = IC · √BR`): mais apostas razoáveis
-elevam o information ratio.
+- **Saída:** probabilidade de superar o CDI, não "sobe/desce".
+- **Entrada:** mistura sinais técnicos (momentum, volatilidade, reversão) com
+  contexto macro (juro real, Selic, inflação IPCA/IGP-M, dólar, bolsa global).
+- **Decisão sobre 8 classes ao mesmo tempo**, ganhando largura de apostas.
 
-## 2. Dados
+## Resultados (jan/2005 a mai/2026, fora da amostra)
 
-Arquivo `context/v6-DB-Indices.xlsx` (aba `IDIV`): série **mensal**,
-Dez/1999 → Mai/2026 (318 meses).
+| Carteira | Retorno a.a. | Volatilidade | Sharpe | Drawdown máx. |
+|---|---|---|---|---|
+| **Estratégia (Floresta Aleatória)** | **13,8%** | **7,0%** | **0,43** | **-7,7%** |
+| Ibovespa | 9,3% | 22,1% | 0,06 | -49,6% |
+| CDI | 10,7% | 1,0% | — | 0,0% |
+| 60/40 | 11,0% | 14,8% | 0,09 | -33,3% |
 
-- **Classes investíveis:** IBOV, SP500BR (ações EUA em R$), OURO, IMA-B, IMA-B 5,
-  IDIV, UTIL, IFNC.
-- **Caixa / risk-free:** SELIC-ACC (índice acumulado da Selic).
-- **Macro (apenas features):** USD, IPCA, IGP-M, SELIC-META, SP500USD.
+Retorno parecido com o de ações, mas com risco perto do da renda fixa: o drawdown
+máximo foi de apenas **-7,7%**, contra **-49,6%** do Ibovespa.
 
-## 3. Pipeline (módulos em `src/`)
+![Drawdown](outputs/drawdown.png)
 
-| Módulo | Papel |
+## Como funciona
+
+| Etapa | O que faz |
 |---|---|
-| `config.py` | Parâmetros centrais (universo, janelas, custos, limites). |
-| `data.py` | Carrega o Excel, converte datas PT-BR, calcula retornos. |
-| `features.py` | Engenharia de features (técnicas + macro) → painel longo. |
-| `labels.py` | Cria o rótulo "bater o CDI" (1 passo à frente, sem lookahead). |
-| `model.py` | Modelos: Logistic, **Random Forest**, **Gradient Boosting**, **MLP**. |
-| `walkforward.py` | Validação out-of-sample com janela expansível. |
-| `allocation.py` | Converte probabilidades em pesos (gestão de risco) + custos. |
-| `metrics.py` | CAGR, vol, Sharpe, max drawdown, taxa de acerto, payoff. |
-| `plots.py` | Gráficos (curva de patrimônio, drawdown, pesos, importâncias). |
-| `main.py` | Orquestra tudo e salva resultados em `outputs/`. |
+| **Dados** | Índices mensais de dez/1999 a mai/2026 (8 classes + macro). |
+| **Features** | 34 atributos: técnicos por ativo + macro compartilhado. |
+| **Rótulo** | 1 se o ativo bate o CDI no mês seguinte, senão 0 (sem lookahead). |
+| **Modelos** | Logística, Floresta Aleatória, Gradient Boosting e MLP. |
+| **Validação** | Walk-forward (treina só com o passado, prevê o mês seguinte). |
+| **Alocação** | Peso ∝ convicção × (1/volatilidade), teto por ativo e piso em caixa. |
+| **Custos** | 0,10% sobre o giro da carteira. |
 
-## 4. Modelagem supervisionada
+O modelo aprendeu que o **regime macro** (dólar, Selic, inflação) é o que mais
+define se uma classe bate o caixa, mais até do que os indicadores técnicos:
 
-Comparamos quatro algoritmos vistos na aula de Aprendizado de Máquina:
-regressão logística (baseline), **Random Forest**, **Gradient Boosting** e
-**Rede Neural MLP**, além de um **ensemble** (média das probabilidades dos três
-de ML). Hiperparâmetros são conservadores (profundidade/regularização limitadas)
-para conter **overfitting**.
+![Importância dos atributos](outputs/feature_importance.png)
 
-**Validação walk-forward (expansível):** a cada mês *d*, o modelo é treinado só
-com dados cujo resultado já se realizou (`date < d`) e prevê as classes em *d*.
-Não há vazamento de informação futura — é o análogo honesto de rodar a
-estratégia ao vivo.
-
-## 5. Alocação e gestão de risco
-
-Para cada mês, a partir das probabilidades `P_i`:
-
-```
-convicção_i = max(P_i − 0,5; 0)              # só ativos atraentes
-peso_bruto_i = convicção_i × (1 / vol_i)     # risk budgeting (inverso da vol)
-pesos = normaliza(peso_bruto), teto de 35% por ativo
-caixa = 1 − Σ pesos                          # piso de proteção em Selic
-```
-
-Aplica-se **custo de transação de 0,10% sobre o giro** (corretagem + slippage +
-impostos, conforme o modelo de custos da aula).
-
-## 6. Avaliação
-
-Métricas (aula + mercado): **Sharpe**, CAGR, volatilidade, **máximo drawdown**,
-**taxa de acerto**, **payoff**, retorno total; e métricas preditivas
-(acurácia, AUC, **IC** = correlação entre convicção e excesso realizado).
-Benchmarks: **IBOV** (buy & hold), **Equal Weight**, **CDI** (100% caixa) e
-**60/40** (IBOV/IMA-B).
-
-## 7. Como executar
+## Como rodar
 
 ```bash
 pip install -r requirements.txt
 cd src
-python main.py
+python main.py            # treina tudo do zero
+python main.py --cache    # reaproveita previsões (rápido)
 ```
 
-Resultados (tabelas `.csv` e gráficos `.png`) são gravados em `outputs/`.
+Saídas (tabelas `.csv` e gráficos `.png`) vão para `outputs/`.
 
-## 8. Resultados (out-of-sample, jan/2005 → mai/2026)
+## Estrutura
 
-**Qualidade preditiva** (acima do acaso de 52,6%):
+```
+src/          código (config, data, features, labels, model, walkforward, allocation, metrics, plots, main)
+outputs/      gráficos e métricas gerados
+relatorio/    relatório científico (PDF) e o gerador
+context/      base de dados (v6-DB-Indices.xlsx)
+```
 
-| Modelo | Acurácia | AUC | IC |
-|---|---|---|---|
-| Random Forest | 0,543 | 0,552 | 0,052 |
-| Gradient Boosting | 0,534 | 0,548 | 0,058 |
-| Logistic | 0,513 | 0,524 | 0,054 |
-| MLP | 0,521 | 0,514 | 0,016 |
+## Limitações
 
-**Performance da carteira** (Sharpe = excesso sobre o CDI):
+O Ibovespa é índice de preço (sem dividendos), enquanto outras séries são de
+retorno total; os custos são uma aproximação; e todo backtest reflete o passado,
+sem garantir resultado futuro.
 
-| Carteira | CAGR | Vol | Sharpe | Max DD | Taxa acerto |
-|---|---|---|---|---|---|
-| **Estratégia ML (Random Forest)** | **13,8%** | **7,0%** | **0,43** | **−7,7%** | 80,5% |
-| Equal Weight | 14,3% | 10,8% | 0,36 | −21,9% | 65,8% |
-| 60/40 | 11,0% | 14,8% | 0,09 | −33,3% | 58,8% |
-| CDI (caixa) | 10,7% | 1,0% | — | 0,0% | 100% |
-| IBOV (buy & hold) | 9,3% | 22,1% | 0,06 | −49,6% | 57,2% |
+---
 
-**Leitura:** a estratégia entrega retorno **maior que o IBOV** com **um terço da
-volatilidade** e drawdown máximo de apenas −7,7% (vs. −49,6% do IBOV). O melhor
-modelo foi o **Random Forest** (melhor Sharpe e menor drawdown).
-
-**Features mais importantes** (Random Forest): momentum do dólar (6/3/1m),
-variação da Selic em 3m, IPCA 12m, IGP-M 12m, juro real e momentum do S&P
-global. Ou seja, o modelo aprendeu que o **regime macro** (câmbio, política
-monetária, inflação) é o que mais determina se uma classe de ativo bate o caixa
-— exatamente a aposta de originalidade da estratégia.
-
-Gráficos em `outputs/`: `equity_curve.png`, `drawdown.png`, `weights.png`,
-`feature_importance.png`.
-
-## 9. Limitações e cuidados
-
-- IBOV é índice de preço (sem dividendos); IDIV/UTIL/IFNC e IMA-B são de retorno
-  total — comparações entre classes têm essa assimetria.
-- Custos são uma aproximação; impacto de mercado real depende do volume.
-- Resultados são *backtest*; desempenho passado não garante futuro.
+Autores: Bruno Garcia de Oliveira Breda e Vitor Antonio de Almeida Lacerda.
